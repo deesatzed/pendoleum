@@ -12,14 +12,19 @@
   select, button, input { padding:7px 11px; border-radius:7px; border:none; background:#1c1c3a; color:#fff; font-size:13px; }
   button { background:#6c5ce7; cursor:pointer; }
   button:hover { background:#a29bfe; }
+  button.danger { background:#c0392b; }
+  button.danger:hover { background:#e74c3c; }
+  button.recording { background:#e17055; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .75; } }
   .layer-row { display:flex; align-items:center; gap:5px; background:#161632; padding:5px 9px; border-radius:7px; }
   #status { font-size:12px; opacity:.75; margin:6px 0 10px; text-align:center; max-width:900px; }
   .section { background:#12122a; padding:8px 12px; border-radius:10px; margin:4px; }
+  label { display:inline-flex; align-items:center; gap:4px; }
 </style>
 </head>
 <body>
   <h2>Modal Layer Pendulum – Generative Engine</h2>
-  <div class="sub">Layer modes • Just Intonation • Live MIDI • Genetic evolution → net-new music</div>
+  <div class="sub">Layer modes • Integer-ratio swing speeds • Just Intonation • Live MIDI • Genetic evolution</div>
 
   <div class="panel" id="layersPanel"></div>
 
@@ -27,8 +32,19 @@
     <div class="section">
       <button onclick="addLayer()">+ Layer</button>
       <button onclick="restart()">Restart</button>
-      <button onclick="toggleAudio()" id="audioBtn">Start Sound</button>
+      <button onclick="togglePause()" id="pauseBtn">Pause</button>
       <label>Per layer <input type="number" id="numPerLayer" value="7" min="4" max="12" style="width:42px"></label>
+    </div>
+
+    <div class="section">
+      <button onclick="toggleAudio()" id="audioBtn">Start Sound</button>
+      <button onclick="stopAll()" id="stopBtn" class="danger">Stop</button>
+      <label>Vol <input type="range" id="volSlider" min="0" max="100" value="55" oninput="setMasterVolume(+this.value/100)" style="width:90px; vertical-align:middle"></label>
+    </div>
+
+    <div class="section">
+      <button onclick="toggleRecord()" id="recBtn">Record</button>
+      <a id="downloadLink" style="display:none"></a>
     </div>
 
     <div class="section">
@@ -42,13 +58,14 @@
 
     <div class="section">
       <button onclick="evolveOnce()">Evolve Once</button>
-      <button onclick="overnightBreed()">Simulate Overnight Breeding</button>
+      <button onclick="overnightBreed()" id="breedBtn">Simulate Overnight Breeding</button>
+      <button onclick="cancelBreed()" id="cancelBreedBtn" class="danger" style="display:none">Cancel Breed</button>
       <label>Gens <input type="number" id="gens" value="40" min="5" max="200" style="width:48px"></label>
     </div>
   </div>
 
   <canvas id="c" width="920" height="600"></canvas>
-  <div id="status">Stack modes → pure JI collisions → MIDI out → genetically breed the next generation of music</div>
+  <div id="status">Stack modes → Start Sound → Record to save → Stop to silence. Chromium recommended.</div>
 
 <script>
 const canvas = document.getElementById('c');
@@ -92,12 +109,54 @@ const etModes = {
 const modeColors = [[190,65],[280,70],[35,80],[320,60],[130,55],[200,50]];
 
 const MAX_LAYERS = 5;
+/** getFreqs normalizes the lowest ratio to this unit (physics). */
+const REL_UNIT = 0.36;
+/** Map REL_UNIT → this Hz so pitches sit in an audible midrange (not sub-bass). */
+const AUDIO_BASE_HZ = 196;
+const VOICE_PEAK = 0.11;
+const DEFAULT_MASTER = 0.55;
+
 let layers = [];
 let time = 0;
 let audioCtx = null, masterGain = null, isAudioOn = false;
 let midiAccess = null, midiOutput = null;
 let population = []; // genetic population
 let customModes = {}; // evolved ratio scales (local SOT)
+let isPaused = false;
+let mediaDest = null;
+let mediaRecorder = null;
+let recordChunks = [];
+let isRecording = false;
+let breedCancel = false;
+let breedRunning = false;
+
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg;
+}
+
+function relToHz(rel) {
+  return AUDIO_BASE_HZ * (rel / REL_UNIT);
+}
+
+function stopPendulumAudio(p) {
+  if (!p) return;
+  try { if (p.osc) { p.osc.stop(); p.osc.disconnect(); } } catch (e) {}
+  try { if (p.gain) p.gain.disconnect(); } catch (e) {}
+  p.osc = null;
+  p.gain = null;
+}
+
+function stopAllOscillators() {
+  layers.forEach(layer => {
+    (layer.pendulums || []).forEach(stopPendulumAudio);
+  });
+}
+
+function setMasterVolume(v01) {
+  if (!masterGain || !audioCtx) return;
+  const v = Math.max(0, Math.min(1, v01));
+  masterGain.gain.setTargetAtTime(v, audioCtx.currentTime, 0.02);
+}
 
 function freeLayerSlots() {
   return Math.max(0, MAX_LAYERS - layers.length);
@@ -143,55 +202,257 @@ function removeLayer(i) {
   restart();
 }
 
-function getFreqs(modeName, n, useJI) {
-  let base;
-  if (useJI && jiModes[modeName]) {
-    base = jiModes[modeName];
-  } else if (customModes[modeName]) {
-    base = customModes[modeName];
-  } else {
-    const notes = etModes[modeName] || etModes.ionian;
-    base = notes.map(n => et[n]);
-  }
-  const freqs = [];
+/** Greatest common divisor (positive integers). */
+function gcd(a, b) {
+  a = Math.abs(a | 0); b = Math.abs(b | 0);
+  while (b) { const t = b; b = a % b; a = t; }
+  return a || 1;
+}
+
+function gcdAll(nums) {
+  return nums.reduce((g, x) => gcd(g, x), nums[0] || 1);
+}
+
+/**
+ * Map floating ratios → smallest positive integers with the same relative spacing
+ * (within rounding). That makes swing rates factorable with no remainder:
+ * a common period exists where every pendulum returns to phase together.
+ */
+function ratiosToIntegerWeights(ratios) {
+  if (!ratios || !ratios.length) return [1];
+  const minR = Math.min(...ratios.filter(r => r > 0));
+  if (!(minR > 0)) return ratios.map(() => 1);
+  // Highly composite scale so pure JI fractions land on exact integers (e.g. ×24 → 24,27,30…).
+  const BIG = 10080;
+  let ints = ratios.map(r => Math.max(1, Math.round((r / minR) * BIG)));
+  const g = gcdAll(ints);
+  return ints.map(i => i / g);
+}
+
+/** Exact scale degrees only — no linear blend between degrees (blends break integer ratios). */
+function modeRatioList(modeName, useJI) {
+  if (useJI && jiModes[modeName]) return jiModes[modeName].slice();
+  if (customModes[modeName]) return customModes[modeName].slice();
+  const notes = etModes[modeName] || etModes.ionian;
+  return notes.map(note => et[note]);
+}
+
+/**
+ * Build n pendulum frequency units from a mode.
+ * - Each speed is an integer weight (commensurate / “factorable without remainders”).
+ * - Degrees walk the scale; extra pendulums stack octaves via ×2 (still integer).
+ * - Returns { rel[], weights[] } where rel is physics unit (min → REL_UNIT).
+ */
+function getFreqPlan(modeName, n, useJI) {
+  const baseRatios = modeRatioList(modeName, useJI);
+  const degreeWeights = ratiosToIntegerWeights(baseRatios);
+  const weights = [];
   for (let i = 0; i < n; i++) {
-    const t = i / Math.max(n-1, 1);
-    const idx = t * (base.length - 1);
-    const i0 = Math.floor(idx), i1 = Math.min(i0+1, base.length-1);
-    freqs.push(base[i0]*(1-(idx-i0)) + base[i1]*(idx-i0));
+    const degree = i % degreeWeights.length;
+    const octaves = Math.floor(i / degreeWeights.length);
+    // ×2 per octave keeps pure integer factors (no fractional leftover).
+    weights.push(degreeWeights[degree] * (2 ** octaves));
   }
-  const minF = Math.min(...freqs);
-  return freqs.map(f => f / minF * 0.36);
+  const minW = Math.min(...weights);
+  const rel = weights.map(w => (w / minW) * REL_UNIT);
+  return { rel, weights };
+}
+
+/** Back-compat: relative physics frequencies only. */
+function getFreqs(modeName, n, useJI) {
+  return getFreqPlan(modeName, n, useJI).rel;
 }
 
 function initAudio() {
   if (audioCtx) return true;
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) {
-    document.getElementById('status').textContent = 'Web Audio not available in this browser';
+    setStatus('Web Audio not available in this browser');
     return false;
   }
   audioCtx = new AC();
   masterGain = audioCtx.createGain();
-  masterGain.gain.value = 0.16;
+  const slider = document.getElementById('volSlider');
+  masterGain.gain.value = slider ? (+slider.value / 100) : DEFAULT_MASTER;
   masterGain.connect(audioCtx.destination);
+  // Tap for MediaRecorder (save)
+  mediaDest = audioCtx.createMediaStreamDestination();
+  masterGain.connect(mediaDest);
   return true;
 }
 
-function toggleAudio() {
-  if (!initAudio()) {
+async function ensureAudioRunning() {
+  if (!initAudio()) return false;
+  if (audioCtx.state === 'suspended') {
+    try {
+      await audioCtx.resume();
+    } catch (e) {
+      setStatus('Audio blocked – click Start Sound again after interacting with the page');
+      return false;
+    }
+  }
+  return audioCtx.state === 'running' || audioCtx.state === 'suspended';
+}
+
+function wirePendulumOsc(p) {
+  if (!audioCtx || !masterGain) return;
+  p.osc = audioCtx.createOscillator();
+  p.gain = audioCtx.createGain();
+  p.osc.type = 'sine';
+  p.osc.frequency.value = relToHz(p.f);
+  p.gain.gain.value = 0;
+  p.osc.connect(p.gain);
+  p.gain.connect(masterGain);
+  p.osc.start();
+}
+
+async function toggleAudio() {
+  const turningOn = !isAudioOn;
+  if (turningOn) {
+    const ok = await ensureAudioRunning();
+    if (!ok) {
+      isAudioOn = false;
+      document.getElementById('audioBtn').textContent = 'Start Sound';
+      return;
+    }
+    isAudioOn = true;
+    document.getElementById('audioBtn').textContent = 'Mute';
+    // Build oscillators only after context is resumed (fixes silent start).
+    layers.forEach(layer => {
+      (layer.pendulums || []).forEach(p => {
+        stopPendulumAudio(p);
+        wirePendulumOsc(p);
+      });
+    });
+    const hzLo = relToHz(REL_UNIT).toFixed(0);
+    setStatus(`Sound on · ~${hzLo} Hz base · use Stop or Mute to silence · Record to save`);
+  } else {
     isAudioOn = false;
     document.getElementById('audioBtn').textContent = 'Start Sound';
+    stopAllOscillators();
+    if (masterGain && audioCtx) masterGain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.01);
+    setStatus('Muted');
+    // restore master for next start
+    const slider = document.getElementById('volSlider');
+    if (masterGain && audioCtx) {
+      const v = slider ? (+slider.value / 100) : DEFAULT_MASTER;
+      masterGain.gain.setTargetAtTime(v, audioCtx.currentTime + 0.05, 0.02);
+    }
+  }
+}
+
+function stopAll() {
+  isAudioOn = false;
+  document.getElementById('audioBtn').textContent = 'Start Sound';
+  stopAllOscillators();
+  if (masterGain && audioCtx) {
+    masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+    masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    const slider = document.getElementById('volSlider');
+    const v = slider ? (+slider.value / 100) : DEFAULT_MASTER;
+    masterGain.gain.setTargetAtTime(v, audioCtx.currentTime + 0.08, 0.03);
+  }
+  if (isRecording) stopRecording(true);
+  if (isPaused) {
+    isPaused = false;
+    document.getElementById('pauseBtn').textContent = 'Pause';
+  }
+  setStatus('Stopped — sound off. Click Start Sound to play again.');
+}
+
+function togglePause() {
+  isPaused = !isPaused;
+  document.getElementById('pauseBtn').textContent = isPaused ? 'Resume' : 'Pause';
+  setStatus(isPaused ? 'Paused (motion + note peaks held)' : 'Resumed');
+}
+
+function toggleRecord() {
+  if (isRecording) stopRecording(false);
+  else startRecording();
+}
+
+async function startRecording() {
+  const ok = await ensureAudioRunning();
+  if (!ok || !mediaDest) {
+    setStatus('Cannot record — Web Audio unavailable');
     return;
   }
-  isAudioOn = !isAudioOn;
-  document.getElementById('audioBtn').textContent = isAudioOn ? 'Mute' : 'Start Sound';
-  if (isAudioOn && audioCtx.state === 'suspended') {
-    audioCtx.resume().catch(() => {
-      document.getElementById('status').textContent = 'Audio blocked – click Start Sound again after interacting with the page';
+  if (!isAudioOn) {
+    // Auto-start sound so recording is not silent
+    isAudioOn = true;
+    document.getElementById('audioBtn').textContent = 'Mute';
+    layers.forEach(layer => {
+      (layer.pendulums || []).forEach(p => {
+        stopPendulumAudio(p);
+        wirePendulumOsc(p);
+      });
     });
   }
-  restart();
+  if (typeof MediaRecorder === 'undefined') {
+    setStatus('MediaRecorder not supported in this browser');
+    return;
+  }
+  recordChunks = [];
+  const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus'
+    : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
+  try {
+    mediaRecorder = mime
+      ? new MediaRecorder(mediaDest.stream, { mimeType: mime })
+      : new MediaRecorder(mediaDest.stream);
+  } catch (e) {
+    setStatus('MediaRecorder not supported in this browser');
+    return;
+  }
+  mediaRecorder.ondataavailable = (ev) => {
+    if (ev.data && ev.data.size > 0) recordChunks.push(ev.data);
+  };
+  mediaRecorder.onstop = () => {
+    const type = mediaRecorder.mimeType || 'audio/webm';
+    const blob = new Blob(recordChunks, { type });
+    const ext = type.includes('ogg') ? 'ogg' : 'webm';
+    const url = URL.createObjectURL(blob);
+    const a = document.getElementById('downloadLink');
+    a.href = url;
+    a.download = `pendoleum-${Date.now()}.${ext}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    const btn = document.getElementById('recBtn');
+    btn.textContent = 'Record';
+    btn.classList.remove('recording');
+    isRecording = false;
+    setStatus(`Saved recording (${(blob.size / 1024).toFixed(0)} KB) — check your downloads`);
+  };
+  mediaRecorder.start(250);
+  isRecording = true;
+  const btn = document.getElementById('recBtn');
+  btn.textContent = 'Stop & Save';
+  btn.classList.add('recording');
+  setStatus('Recording… click Stop & Save to download');
+}
+
+function stopRecording(discard) {
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+    isRecording = false;
+    return;
+  }
+  if (discard) {
+    mediaRecorder.onstop = () => {
+      recordChunks = [];
+      isRecording = false;
+      const btn = document.getElementById('recBtn');
+      btn.textContent = 'Record';
+      btn.classList.remove('recording');
+    };
+  }
+  try { mediaRecorder.stop(); } catch (e) {}
+  if (!discard) {
+    // onstop handles download
+  }
+  isRecording = false;
+  const btn = document.getElementById('recBtn');
+  btn.textContent = 'Record';
+  btn.classList.remove('recording');
 }
 
 async function enableMIDI() {
@@ -225,8 +486,9 @@ async function enableMIDI() {
 }
 
 function freqToMidi(f) {
-  // map relative freq to MIDI note ~48-72
-  return Math.round(48 + 12 * Math.log2(f * 2.2));
+  // map relative physics unit → audible Hz → MIDI note number
+  const hz = relToHz(f);
+  return Math.max(0, Math.min(127, Math.round(69 + 12 * Math.log2(hz / 440))));
 }
 
 function sendMIDINote(note, vel=90, dur=180) {
@@ -241,29 +503,38 @@ function restart() {
   const useJI = document.getElementById('jiToggle').checked;
 
   layers.forEach((layer, li) => {
-    layer.pendulums.forEach(p => { if (p.osc) { try{p.osc.stop()}catch(e){} p.osc.disconnect(); }});
-    const freqs = getFreqs(layer.mode, n, useJI);
-    layer.pendulums = freqs.map((f, i) => {
+    (layer.pendulums || []).forEach(stopPendulumAudio);
+    const plan = getFreqPlan(layer.mode, n, useJI);
+    layer.weights = plan.weights;
+    layer.pendulums = plan.rel.map((f, i) => {
       const p = {
-        f, length: 155/(f*f), angle:0.5, trail:[],
+        f,
+        weight: plan.weights[i], // integer swing-speed factor (commensurate family)
+        length: 155/(f*f), angle:0.5, trail:[],
         hue: modeColors[li%modeColors.length][0] + i*(modeColors[li%modeColors.length][1]/n),
-        lastPeak: 0
+        lastPeak: 0,
+        osc: null,
+        gain: null
       };
-      if (isAudioOn && audioCtx) {
-        p.osc = audioCtx.createOscillator();
-        p.gain = audioCtx.createGain();
-        p.osc.type = 'sine';
-        p.osc.frequency.value = 98 * f;
-        p.gain.gain.value = 0;
-        p.osc.connect(p.gain);
-        p.gain.connect(masterGain);
-        p.osc.start();
+      if (isAudioOn && audioCtx && audioCtx.state !== 'closed') {
+        wirePendulumOsc(p);
       }
       return p;
     });
   });
   time = 0;
-  document.getElementById('status').textContent = layers.map(l=>l.mode).join(' + ') + (useJI?' (JI)':' (ET)');
+  // Compact ratio string: 24:27:30… (proves integer / remainder-free factors)
+  const ratioStr = layers.map(l => {
+    const w = l.weights || [];
+    const g = w.length ? gcdAll(w) : 1;
+    return (w.map(x => x / g).join(':')) || '—';
+  }).join(' | ');
+  setStatus(
+    layers.map(l => l.mode).join(' + ') +
+    (useJI ? ' (JI)' : ' (ET)') +
+    (isAudioOn ? ' · sound on' : '') +
+    ' · speeds ' + ratioStr
+  );
 }
 
 // ——— Genetic Algorithm ———
@@ -325,10 +596,24 @@ function evolveOnce() {
   }
 }
 
-function overnightBreed() {
+function cancelBreed() {
+  if (!breedRunning) return;
+  breedCancel = true;
+  setStatus('Cancelling breeding…');
+}
+
+async function overnightBreed() {
+  if (breedRunning) return;
   const gens = +document.getElementById('gens').value || 40;
+  breedRunning = true;
+  breedCancel = false;
+  document.getElementById('breedBtn').style.display = 'none';
+  document.getElementById('cancelBreedBtn').style.display = '';
   if (population.length < 8) population = Array.from({length:24}, () => randomScale(6));
-  for (let g=0; g<gens; g++) {
+
+  const chunk = 5;
+  for (let g = 0; g < gens; g++) {
+    if (breedCancel) break;
     population.sort((a,b)=>fitness(b)-fitness(a));
     const elite = population.slice(0,5);
     const next = [...elite];
@@ -338,7 +623,22 @@ function overnightBreed() {
       next.push(Math.random()<0.7 ? mutate(crossover(p1,p2)) : mutate(p1));
     }
     population = next;
+    if (g % chunk === 0 || g === gens - 1) {
+      setStatus(`Breeding… gen ${g + 1}/${gens}`);
+      await new Promise(r => setTimeout(r, 0)); // yield so Cancel works
+    }
   }
+
+  document.getElementById('breedBtn').style.display = '';
+  document.getElementById('cancelBreedBtn').style.display = 'none';
+  breedRunning = false;
+
+  if (breedCancel) {
+    breedCancel = false;
+    setStatus('Breeding cancelled');
+    return;
+  }
+
   // inject top 2 into free slots only
   let loaded = 0;
   let savedOnly = 0;
@@ -351,11 +651,11 @@ function overnightBreed() {
   createLayerUI();
   restart();
   if (savedOnly === 0) {
-    document.getElementById('status').textContent = `Overnight breeding complete (${gens} gens). Top two offspring loaded.`;
+    setStatus(`Overnight breeding complete (${gens} gens). Top two offspring loaded.`);
   } else if (loaded === 0) {
-    document.getElementById('status').textContent = `Overnight breeding complete (${gens} gens). Modes saved; layer cap ${MAX_LAYERS} — remove a layer to load.`;
+    setStatus(`Overnight breeding complete (${gens} gens). Modes saved; layer cap ${MAX_LAYERS} — remove a layer to load.`);
   } else {
-    document.getElementById('status').textContent = `Overnight breeding complete (${gens} gens). Loaded ${loaded}, saved without layer ${savedOnly} (cap ${MAX_LAYERS}).`;
+    setStatus(`Overnight breeding complete (${gens} gens). Loaded ${loaded}, saved without layer ${savedOnly} (cap ${MAX_LAYERS}).`);
   }
 }
 
@@ -376,10 +676,12 @@ function draw() {
     layer.pendulums.forEach((p, i) => {
       const omega = 2*Math.PI*p.f;
       const prevAngle = p.angle;
-      p.angle = 0.50 * Math.cos(omega*time + li*0.35);
+      if (!isPaused) {
+        p.angle = 0.50 * Math.cos(omega*time + li*0.35);
+      }
 
       // detect peak for MIDI
-      if (Math.abs(p.angle) > 0.47 && Math.abs(prevAngle) <= 0.47 && time - p.lastPeak > 0.35) {
+      if (!isPaused && Math.abs(p.angle) > 0.47 && Math.abs(prevAngle) <= 0.47 && time - p.lastPeak > 0.35) {
         p.lastPeak = time;
         if (midiOutput) sendMIDINote(freqToMidi(p.f), 75 + Math.random()*40, 140+Math.random()*80);
       }
@@ -387,8 +689,10 @@ function draw() {
       const x = pivotX + p.length * Math.sin(p.angle);
       const y = pivotY + p.length * Math.cos(p.angle);
 
-      p.trail.push({x,y});
-      if (p.trail.length > 32) p.trail.shift();
+      if (!isPaused) {
+        p.trail.push({x,y});
+        if (p.trail.length > 32) p.trail.shift();
+      }
 
       ctx.beginPath();
       ctx.strokeStyle = `hsla(${p.hue},75%,65%,0.5)`;
@@ -410,14 +714,14 @@ function draw() {
       ctx.arc(x, y, 6.5, 0, Math.PI*2);
       ctx.fill();
 
-      if (p.gain) {
-        const energy = Math.pow(Math.abs(Math.sin(p.angle*1.7)), 1.4);
-        p.gain.gain.setTargetAtTime(energy*0.085, audioCtx.currentTime, 0.04);
+      if (p.gain && audioCtx && isAudioOn) {
+        const energy = isPaused ? 0 : Math.pow(Math.abs(Math.sin(p.angle*1.7)), 1.4);
+        p.gain.gain.setTargetAtTime(energy * VOICE_PEAK, audioCtx.currentTime, 0.04);
       }
     });
   });
 
-  time += 0.0152;
+  if (!isPaused) time += 0.0152;
   requestAnimationFrame(draw);
 }
 

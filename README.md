@@ -37,10 +37,12 @@ npx --yes serve .
 Then in **Chrome / Edge / Brave**:
 
 1. Stack 2–4 modes (try **Dorian + Phrygian + Lydian**)
-2. Hit **Start Sound**
+2. Hit **Start Sound** (pitches land ~196 Hz and up so laptop speakers can hear them)
 3. Toggle **Just Intonation** and listen to the pure-ratio collisions
-4. **Enable MIDI** → route to a DAW or hardware synth
-5. **Simulate Overnight Breeding** → load evolved DNA as new layers
+4. **Record** → play → **Stop & Save** to download a WebM of the audio
+5. **Stop** or **Mute** to silence; **Pause** freezes motion
+6. **Enable MIDI** → route to a DAW or hardware synth
+7. **Simulate Overnight Breeding** → load evolved DNA as new layers (**Cancel Breed** if needed)
 
 <p align="center">
   <img src="docs/assets/app-screenshot.png" width="100%" alt="Pendoleum app UI with layered modal pendulums" />
@@ -85,6 +87,7 @@ Every pendulum is a living oscillator: its length and motion are bound to pitch.
 | Pillar | What you get |
 |--------|----------------|
 | **Layered modes** | Up to 5 modal layers (Ionian → blues, pentatonics, custom evolved scales) |
+| **Integer-ratio speeds** | Swing rates are integer factors (e.g. JI ionian `24:27:30:32:36:40:45`) so periods nest with no remainder; extra pendulums stack octaves by ×2 |
 | **Physics canvas** | Pendulum trails, multi-hue layers, real-time energy |
 | **Web Audio** | Sine bank per pendulum, gesture-gated Start Sound |
 | **JI / ET** | Full mode tables in both tunings |
