@@ -16,15 +16,17 @@
   button.danger:hover { background:#e74c3c; }
   button.recording { background:#e17055; animation: pulse 1.2s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: .75; } }
-  .layer-row { display:flex; align-items:center; gap:5px; background:#161632; padding:5px 9px; border-radius:7px; }
-  #status { font-size:12px; opacity:.75; margin:6px 0 10px; text-align:center; max-width:900px; }
+  .layer-row { display:flex; flex-wrap:wrap; align-items:center; gap:5px; background:#161632; padding:5px 9px; border-radius:7px; font-size:12px; }
+  .layer-row select, .layer-row input { font-size:12px; padding:5px 7px; }
+  .layer-row .tag { opacity:.55; font-size:10px; margin-left:2px; }
+  #status { font-size:12px; opacity:.75; margin:6px 0 10px; text-align:center; max-width:920px; word-break:break-word; }
   .section { background:#12122a; padding:8px 12px; border-radius:10px; margin:4px; }
   label { display:inline-flex; align-items:center; gap:4px; }
 </style>
 </head>
 <body>
   <h2>Modal Layer Pendulum – Generative Engine</h2>
-  <div class="sub">Layer modes • Integer-ratio swing speeds • Just Intonation • Live MIDI • Genetic evolution</div>
+  <div class="sub">Per layer: mode · key · oct · speed · order (↑/↓) · notes (count) · JI · MIDI · evolve</div>
 
   <div class="panel" id="layersPanel"></div>
 
@@ -33,7 +35,7 @@
       <button onclick="addLayer()">+ Layer</button>
       <button onclick="restart()">Restart</button>
       <button onclick="togglePause()" id="pauseBtn">Pause</button>
-      <label>Per layer <input type="number" id="numPerLayer" value="7" min="4" max="12" style="width:42px"></label>
+      <label>Default notes <input type="number" id="numPerLayer" value="7" min="1" max="12" style="width:42px" title="Default note count for new layers" onchange="onDefaultNotesChange()"></label>
     </div>
 
     <div class="section">
@@ -152,10 +154,102 @@ function stopAllOscillators() {
   });
 }
 
+function masterVolumeFromUI() {
+  const slider = document.getElementById('volSlider');
+  return slider ? Math.max(0, Math.min(1, +slider.value / 100)) : DEFAULT_MASTER;
+}
+
 function setMasterVolume(v01) {
   if (!masterGain || !audioCtx) return;
+  // While stopped/muted, keep bus silent — slider value is applied on next Start Sound.
+  if (!isAudioOn) return;
   const v = Math.max(0, Math.min(1, v01));
+  masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
   masterGain.gain.setTargetAtTime(v, audioCtx.currentTime, 0.02);
+}
+
+const KEY_NAMES = ['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
+/**
+ * Swing-rate factors as exact rationals (num/den) so speeds stay
+ * factorable without remainder. Includes very slow rates so each peak is audible.
+ */
+const SPEED_OPTIONS = [
+  { id: '1/8', num: 1, den: 8, label: '×1/8 very slow' },
+  { id: '1/6', num: 1, den: 6, label: '×1/6' },
+  { id: '1/4', num: 1, den: 4, label: '×1/4 slow' },
+  { id: '1/3', num: 1, den: 3, label: '×1/3' },
+  { id: '1/2', num: 1, den: 2, label: '×1/2' },
+  { id: '1',   num: 1, den: 1, label: '×1' },
+  { id: '2',   num: 2, den: 1, label: '×2' },
+  { id: '3',   num: 3, den: 1, label: '×3' },
+  { id: '4',   num: 4, den: 1, label: '×4' },
+  { id: '6',   num: 6, den: 1, label: '×6' },
+  { id: '8',   num: 8, den: 1, label: '×8 fast' }
+];
+const OCTAVE_OPTIONS = [-2, -1, 0, 1, 2];
+
+function parseSpeed(speed) {
+  if (speed && typeof speed === 'object' && speed.num != null) {
+    return { num: Math.max(1, speed.num | 0), den: Math.max(1, speed.den | 0) };
+  }
+  // legacy integer speeds
+  if (typeof speed === 'number' && Number.isFinite(speed)) {
+    return { num: Math.max(1, Math.round(speed)), den: 1 };
+  }
+  const s = String(speed == null ? '1/4' : speed);
+  if (s.includes('/')) {
+    const [a, b] = s.split('/');
+    return { num: Math.max(1, parseInt(a, 10) || 1), den: Math.max(1, parseInt(b, 10) || 1) };
+  }
+  const n = parseInt(s, 10);
+  return { num: Math.max(1, n || 1), den: 1 };
+}
+
+function speedId(speed) {
+  const { num, den } = parseSpeed(speed);
+  return den === 1 ? String(num) : `${num}/${den}`;
+}
+
+function speedFactor(speed) {
+  const { num, den } = parseSpeed(speed);
+  return num / den;
+}
+
+function speedLabel(speed) {
+  const id = speedId(speed);
+  const opt = SPEED_OPTIONS.find(o => o.id === id);
+  return opt ? opt.label : `×${id}`;
+}
+
+function defaultNotesFromUI() {
+  const el = document.getElementById('numPerLayer');
+  const n = el ? (+el.value || 7) : 7;
+  return Math.max(1, Math.min(12, n));
+}
+
+/**
+ * order:
+ *  - 'asc'  scale low→high (default)
+ *  - 'desc' reversed high→low (does NOT remove pendulums; same ratios, mirrored assignment)
+ * notes: how many pendulums/degrees to keep (remove notes by lowering this)
+ */
+function defaultLayer(mode) {
+  return {
+    mode: mode || 'ionian',
+    key: 'C',
+    octave: 0,
+    speed: '1/4', // default slow enough to hear each peak as a note
+    order: 'asc',
+    notes: defaultNotesFromUI(),
+    pendulums: [],
+    weights: []
+  };
+}
+
+function onDefaultNotesChange() {
+  // Only updates layers that still track the default (optional: apply to all without custom)
+  // Leave existing layer.notes as-is; new layers pick up the new default.
+  setStatus('Default notes set to ' + defaultNotesFromUI() + ' (existing layers keep their own note counts)');
 }
 
 function freeLayerSlots() {
@@ -166,25 +260,64 @@ function freeLayerSlots() {
 function injectModeAsLayer(name, scale) {
   customModes[name] = scale;
   if (freeLayerSlots() === 0) return false;
-  layers.push({ mode: name, pendulums: [] });
+  layers.push(defaultLayer(name));
   return true;
+}
+
+function setLayerField(i, field, value) {
+  const layer = layers[i];
+  if (!layer) return;
+  if (field === 'mode') layer.mode = value;
+  else if (field === 'key') layer.key = value;
+  else if (field === 'octave') layer.octave = +value;
+  else if (field === 'speed') layer.speed = speedId(value);
+  else if (field === 'order') layer.order = value === 'desc' ? 'desc' : 'asc';
+  else if (field === 'notes') layer.notes = Math.max(1, Math.min(12, +value || 1));
+  restart();
 }
 
 function createLayerUI() {
   const panel = document.getElementById('layersPanel');
   panel.innerHTML = '';
   layers.forEach((layer, i) => {
+    if (layer.key == null) layer.key = 'C';
+    if (layer.octave == null) layer.octave = 0;
+    if (layer.speed == null) layer.speed = '1/4';
+    if (layer.order == null) layer.order = 'asc';
+    if (layer.notes == null) layer.notes = defaultNotesFromUI();
+    const curSpd = speedId(layer.speed);
     const row = document.createElement('div');
     row.className = 'layer-row';
     const opts = Object.keys(etModes).concat(Object.keys(jiModes).filter(k=>!etModes[k])).concat(
       Object.keys(customModes)
     );
+    const keyOpts = KEY_NAMES.map(k =>
+      `<option value="${k}" ${k===layer.key?'selected':''}>${k}</option>`).join('');
+    const octOpts = OCTAVE_OPTIONS.map(o =>
+      `<option value="${o}" ${o===layer.octave?'selected':''}>${o >= 0 ? '+'+o : o}</option>`).join('');
+    const spdOpts = SPEED_OPTIONS.map(s =>
+      `<option value="${s.id}" ${s.id===curSpd?'selected':''}>${s.label}</option>`).join('');
+    const noteOpts = Array.from({ length: 12 }, (_, k) => k + 1).map(n =>
+      `<option value="${n}" ${n===layer.notes?'selected':''}>${n}</option>`).join('');
     row.innerHTML = `
       <span style="color:hsl(${modeColors[i%modeColors.length][0]},70%,70%)">L${i+1}</span>
-      <select onchange="layers[${i}].mode=this.value;restart()">
+      <select onchange="setLayerField(${i},'mode',this.value)" title="Mode / scale">
         ${opts.map(m => `<option value="${m}" ${m===layer.mode?'selected':''}>${m}</option>`).join('')}
       </select>
-      <button onclick="removeLayer(${i})">×</button>`;
+      <span class="tag">key</span>
+      <select onchange="setLayerField(${i},'key',this.value)" title="Key / root">${keyOpts}</select>
+      <span class="tag">oct</span>
+      <select onchange="setLayerField(${i},'octave',this.value)" title="Octave">${octOpts}</select>
+      <span class="tag">spd</span>
+      <select onchange="setLayerField(${i},'speed',this.value)" title="Swing speed (exact rational factor)">${spdOpts}</select>
+      <span class="tag">order</span>
+      <select onchange="setLayerField(${i},'order',this.value)" title="Note order — reverse does not remove pendulums">
+        <option value="asc" ${layer.order!=='desc'?'selected':''}>low→high</option>
+        <option value="desc" ${layer.order==='desc'?'selected':''}>high→low</option>
+      </select>
+      <span class="tag">notes</span>
+      <select onchange="setLayerField(${i},'notes',this.value)" title="How many notes/pendulums (remove notes by lowering)">${noteOpts}</select>
+      <button onclick="removeLayer(${i})" title="Remove layer">×</button>`;
     panel.appendChild(row);
   });
 }
@@ -192,7 +325,7 @@ function createLayerUI() {
 function addLayer() {
   if (layers.length >= MAX_LAYERS) return;
   const keys = Object.keys(etModes);
-  layers.push({ mode: keys[layers.length % keys.length], pendulums: [] });
+  layers.push(defaultLayer(keys[layers.length % keys.length]));
   createLayerUI();
   restart();
 }
@@ -239,28 +372,36 @@ function modeRatioList(modeName, useJI) {
 
 /**
  * Build n pendulum frequency units from a mode.
- * - Each speed is an integer weight (commensurate / “factorable without remainders”).
- * - Degrees walk the scale; extra pendulums stack octaves via ×2 (still integer).
- * - Returns { rel[], weights[] } where rel is physics unit (min → REL_UNIT).
+ * - Integer weights stay commensurate (factorable without remainders).
+ * - order 'asc'|'desc': reverse note assignment without losing pendulums —
+ *   same pitch set, mirrored degree order (each bob still has its own length/rate).
+ * - n = how many notes to keep (remove notes by using a smaller n).
+ * - Extra pendulums beyond scale length stack octaves via ×2.
  */
-function getFreqPlan(modeName, n, useJI) {
+function getFreqPlan(modeName, n, useJI, key, octave, layerSpeed, order) {
   const baseRatios = modeRatioList(modeName, useJI);
-  const degreeWeights = ratiosToIntegerWeights(baseRatios);
+  let degreeWeights = ratiosToIntegerWeights(baseRatios);
+  // Reverse only reorders assignment — does not drop the pendulum physics.
+  if (order === 'desc') degreeWeights = degreeWeights.slice().reverse();
+
+  const count = Math.max(1, Math.min(12, n | 0 || 1));
   const weights = [];
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < count; i++) {
     const degree = i % degreeWeights.length;
     const octaves = Math.floor(i / degreeWeights.length);
-    // ×2 per octave keeps pure integer factors (no fractional leftover).
     weights.push(degreeWeights[degree] * (2 ** octaves));
   }
   const minW = Math.min(...weights);
-  const rel = weights.map(w => (w / minW) * REL_UNIT);
-  return { rel, weights };
+  const keyRatio = et[key] || 1; // relative to C
+  const octMul = Math.pow(2, octave || 0);
+  const pitchMul = keyRatio * octMul;
+  const rel = weights.map(w => (w / minW) * REL_UNIT * pitchMul);
+  return { rel, weights, pitchMul, layerSpeed: speedId(layerSpeed), order: order === 'desc' ? 'desc' : 'asc' };
 }
 
 /** Back-compat: relative physics frequencies only. */
 function getFreqs(modeName, n, useJI) {
-  return getFreqPlan(modeName, n, useJI).rel;
+  return getFreqPlan(modeName, n, useJI, 'C', 0, '1', 'asc').rel;
 }
 
 function initAudio() {
@@ -299,11 +440,34 @@ function wirePendulumOsc(p) {
   p.osc = audioCtx.createOscillator();
   p.gain = audioCtx.createGain();
   p.osc.type = 'sine';
-  p.osc.frequency.value = relToHz(p.f);
+  // p.f already scaled by key/octave; relToHz maps REL_UNIT→AUDIO_BASE but f may be > REL_UNIT*pitch
+  // Use absolute: hz = AUDIO_BASE_HZ * (f / REL_UNIT) which works for any positive f.
+  p.osc.frequency.value = AUDIO_BASE_HZ * (p.f / REL_UNIT);
   p.gain.gain.value = 0;
   p.osc.connect(p.gain);
   p.gain.connect(masterGain);
   p.osc.start();
+}
+
+function hardSilenceBus() {
+  // Zero every voice, tear down oscillators, hold master at 0 (do NOT auto-restore).
+  layers.forEach(layer => {
+    (layer.pendulums || []).forEach(p => {
+      if (p.gain && audioCtx) {
+        try {
+          p.gain.gain.cancelScheduledValues(audioCtx.currentTime);
+          p.gain.gain.setValueAtTime(0, audioCtx.currentTime);
+        } catch (e) {}
+      }
+      stopPendulumAudio(p);
+    });
+  });
+  if (masterGain && audioCtx) {
+    try {
+      masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+      masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    } catch (e) {}
+  }
 }
 
 async function toggleAudio() {
@@ -316,48 +480,42 @@ async function toggleAudio() {
       return;
     }
     isAudioOn = true;
+    isPaused = false;
+    document.getElementById('pauseBtn').textContent = 'Pause';
     document.getElementById('audioBtn').textContent = 'Mute';
-    // Build oscillators only after context is resumed (fixes silent start).
+    // Restore level from slider, then build oscillators.
+    if (masterGain) {
+      masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+      masterGain.gain.setValueAtTime(masterVolumeFromUI(), audioCtx.currentTime);
+    }
     layers.forEach(layer => {
       (layer.pendulums || []).forEach(p => {
         stopPendulumAudio(p);
         wirePendulumOsc(p);
       });
     });
-    const hzLo = relToHz(REL_UNIT).toFixed(0);
-    setStatus(`Sound on · ~${hzLo} Hz base · use Stop or Mute to silence · Record to save`);
+    setStatus(`Sound on · Stop = silence + freeze · per-layer key/oct/spd available`);
   } else {
+    // Mute: hard silence, keep motion running
     isAudioOn = false;
     document.getElementById('audioBtn').textContent = 'Start Sound';
-    stopAllOscillators();
-    if (masterGain && audioCtx) masterGain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.01);
-    setStatus('Muted');
-    // restore master for next start
-    const slider = document.getElementById('volSlider');
-    if (masterGain && audioCtx) {
-      const v = slider ? (+slider.value / 100) : DEFAULT_MASTER;
-      masterGain.gain.setTargetAtTime(v, audioCtx.currentTime + 0.05, 0.02);
-    }
+    hardSilenceBus();
+    setStatus('Muted (motion continues). Start Sound to hear again.');
   }
 }
 
 function stopAll() {
+  // Full stop: silence audio, freeze motion, suspend context. Master stays at 0 until Start.
   isAudioOn = false;
   document.getElementById('audioBtn').textContent = 'Start Sound';
-  stopAllOscillators();
-  if (masterGain && audioCtx) {
-    masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
-    masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
-    const slider = document.getElementById('volSlider');
-    const v = slider ? (+slider.value / 100) : DEFAULT_MASTER;
-    masterGain.gain.setTargetAtTime(v, audioCtx.currentTime + 0.08, 0.03);
-  }
+  hardSilenceBus();
+  isPaused = true;
+  document.getElementById('pauseBtn').textContent = 'Resume';
   if (isRecording) stopRecording(true);
-  if (isPaused) {
-    isPaused = false;
-    document.getElementById('pauseBtn').textContent = 'Pause';
+  if (audioCtx && audioCtx.state === 'running') {
+    audioCtx.suspend().catch(() => {});
   }
-  setStatus('Stopped — sound off. Click Start Sound to play again.');
+  setStatus('Stopped — silent & frozen. Click Start Sound (or Resume for motion only).');
 }
 
 function togglePause() {
@@ -380,7 +538,13 @@ async function startRecording() {
   if (!isAudioOn) {
     // Auto-start sound so recording is not silent
     isAudioOn = true;
+    isPaused = false;
+    document.getElementById('pauseBtn').textContent = 'Pause';
     document.getElementById('audioBtn').textContent = 'Mute';
+    if (masterGain) {
+      masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+      masterGain.gain.setValueAtTime(masterVolumeFromUI(), audioCtx.currentTime);
+    }
     layers.forEach(layer => {
       (layer.pendulums || []).forEach(p => {
         stopPendulumAudio(p);
@@ -485,10 +649,15 @@ async function enableMIDI() {
   }
 }
 
+function freqToMidiFromHz(hz) {
+  if (!(hz > 0)) return 60;
+  return Math.max(0, Math.min(127, Math.round(69 + 12 * Math.log2(hz / 440))));
+}
+
 function freqToMidi(f) {
   // map relative physics unit → audible Hz → MIDI note number
-  const hz = relToHz(f);
-  return Math.max(0, Math.min(127, Math.round(69 + 12 * Math.log2(hz / 440))));
+  const hz = AUDIO_BASE_HZ * (f / REL_UNIT);
+  return freqToMidiFromHz(hz);
 }
 
 function sendMIDINote(note, vel=90, dur=180) {
@@ -499,19 +668,37 @@ function sendMIDINote(note, vel=90, dur=180) {
 }
 
 function restart() {
-  const n = +document.getElementById('numPerLayer').value || 7;
   const useJI = document.getElementById('jiToggle').checked;
 
   layers.forEach((layer, li) => {
+    if (layer.key == null) layer.key = 'C';
+    if (layer.octave == null) layer.octave = 0;
+    if (layer.speed == null) layer.speed = '1/4';
+    if (layer.order == null) layer.order = 'asc';
+    if (layer.notes == null) layer.notes = defaultNotesFromUI();
+    layer.speed = speedId(layer.speed);
+    layer.notes = Math.max(1, Math.min(12, +layer.notes || 1));
+    const n = layer.notes;
     (layer.pendulums || []).forEach(stopPendulumAudio);
-    const plan = getFreqPlan(layer.mode, n, useJI);
+    const plan = getFreqPlan(layer.mode, n, useJI, layer.key, layer.octave, layer.speed, layer.order);
     layer.weights = plan.weights;
+    const spdF = speedFactor(layer.speed);
     layer.pendulums = plan.rel.map((f, i) => {
+      // Visual length from weight only (not pitchMul) so high keys don’t collapse the fan
+      const w = plan.weights[i];
+      const minW = Math.min(...plan.weights);
+      const fVis = (w / minW) * REL_UNIT;
       const p = {
-        f,
-        weight: plan.weights[i], // integer swing-speed factor (commensurate family)
-        length: 155/(f*f), angle:0.5, trail:[],
-        hue: modeColors[li%modeColors.length][0] + i*(modeColors[li%modeColors.length][1]/n),
+        f, // includes key/octave for pitch + omega base
+        fVis,
+        weight: w,
+        pitchMul: plan.pitchMul,
+        speed: plan.layerSpeed,
+        speedFactor: spdF,
+        length: 155 / (fVis * fVis),
+        angle: 0.5,
+        trail: [],
+        hue: modeColors[li % modeColors.length][0] + i * (modeColors[li % modeColors.length][1] / Math.max(n, 1)),
         lastPeak: 0,
         osc: null,
         gain: null
@@ -523,18 +710,14 @@ function restart() {
     });
   });
   time = 0;
-  // Compact ratio string: 24:27:30… (proves integer / remainder-free factors)
-  const ratioStr = layers.map(l => {
-    const w = l.weights || [];
-    const g = w.length ? gcdAll(w) : 1;
-    return (w.map(x => x / g).join(':')) || '—';
-  }).join(' | ');
-  setStatus(
-    layers.map(l => l.mode).join(' + ') +
-    (useJI ? ' (JI)' : ' (ET)') +
-    (isAudioOn ? ' · sound on' : '') +
-    ' · speeds ' + ratioStr
-  );
+  const summary = layers.map(l => {
+    const spd = speedId(l.speed);
+    const oct = l.octave || 0;
+    const octS = oct >= 0 ? `+${oct}` : `${oct}`;
+    const ord = l.order === 'desc' ? '↓' : '↑';
+    return `${l.mode}@${l.key || 'C'}${octS}×${spd}${ord}${l.notes}n`;
+  }).join(' + ');
+  setStatus(summary + (useJI ? ' (JI)' : ' (ET)') + (isAudioOn ? ' · sound on' : isPaused ? ' · stopped/paused' : ''));
 }
 
 // ——— Genetic Algorithm ———
@@ -673,17 +856,23 @@ function draw() {
   ctx.stroke();
 
   layers.forEach((layer, li) => {
+    const layerSpeed = speedFactor(layer.speed); // rational, e.g. 1/8 … 8
     layer.pendulums.forEach((p, i) => {
-      const omega = 2*Math.PI*p.f;
+      // Rational layer speed multiplies swing rate; fVis keeps relative integer ratios
+      const baseF = p.fVis != null ? p.fVis : p.f;
+      const omega = 2 * Math.PI * baseF * layerSpeed;
       const prevAngle = p.angle;
       if (!isPaused) {
-        p.angle = 0.50 * Math.cos(omega*time + li*0.35);
+        p.angle = 0.50 * Math.cos(omega * time + li * 0.35);
       }
 
-      // detect peak for MIDI
-      if (!isPaused && Math.abs(p.angle) > 0.47 && Math.abs(prevAngle) <= 0.47 && time - p.lastPeak > 0.35) {
+      // Peak spacing scales with speed so slow rates don't re-trigger mid-swing
+      const minPeakGap = 0.35 / Math.max(layerSpeed, 0.05);
+      if (!isPaused && Math.abs(p.angle) > 0.47 && Math.abs(prevAngle) <= 0.47 && time - p.lastPeak > minPeakGap) {
         p.lastPeak = time;
-        if (midiOutput) sendMIDINote(freqToMidi(p.f), 75 + Math.random()*40, 140+Math.random()*80);
+        // Longer MIDI notes when slow so each degree is hearable
+        const noteDur = Math.min(1200, Math.max(140, 180 / Math.max(layerSpeed, 0.1)));
+        if (midiOutput) sendMIDINote(freqToMidi(p.f), 75 + Math.random()*40, noteDur);
       }
 
       const x = pivotX + p.length * Math.sin(p.angle);

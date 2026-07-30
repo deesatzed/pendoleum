@@ -38,11 +38,12 @@ Then in **Chrome / Edge / Brave**:
 
 1. Stack 2–4 modes (try **Dorian + Phrygian + Lydian**)
 2. Hit **Start Sound** (pitches land ~196 Hz and up so laptop speakers can hear them)
-3. Toggle **Just Intonation** and listen to the pure-ratio collisions
-4. **Record** → play → **Stop & Save** to download a WebM of the audio
-5. **Stop** or **Mute** to silence; **Pause** freezes motion
-6. **Enable MIDI** → route to a DAW or hardware synth
-7. **Simulate Overnight Breeding** → load evolved DNA as new layers (**Cancel Breed** if needed)
+3. Per layer: set **mode**, **key**, **octave**, and **speed** (exact rationals ×1/8 very slow … ×8; default ×1/4 so each peak is hearable)
+4. Toggle **Just Intonation** and listen to the pure-ratio collisions
+5. **Record** → play → **Stop & Save** to download a WebM of the audio
+6. **Stop** = hard silence + freeze (+ suspend audio). **Mute** = silence only. **Pause** freezes motion.
+7. **Enable MIDI** → route to a DAW or hardware synth
+8. **Simulate Overnight Breeding** → load evolved DNA as new layers (**Cancel Breed** if needed)
 
 <p align="center">
   <img src="docs/assets/app-screenshot.png" width="100%" alt="Pendoleum app UI with layered modal pendulums" />
