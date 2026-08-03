@@ -38,9 +38,9 @@ Then in **Chrome / Edge / Brave**:
 
 1. Stack 2–4 modes (try **Dorian + Phrygian + Lydian**)
 2. Hit **Start Sound** (pitches land ~196 Hz and up so laptop speakers can hear them)
-3. Per layer: set **mode**, **key**, **octave**, and **speed** (exact rationals ×1/8 very slow … ×8; default ×1/4 so each peak is hearable)
+3. Per layer: set **mode**, **key**, **octave**, **speed**, **order**, and **note count** (exact rational speeds ×1/8 very slow … ×8; default ×1/4 so each peak is hearable)
 4. Toggle **Just Intonation** and listen to the pure-ratio collisions
-5. **Record** → play → **Stop & Save** to download a WebM of the audio
+5. **Record** → play → click the recording button again when it reads **Stop & Save** to download a WebM of the audio
 6. **Stop** = hard silence + freeze (+ suspend audio). **Mute** = silence only. **Pause** freezes motion.
 7. **Enable MIDI** → route to a DAW or hardware synth
 8. **Simulate Overnight Breeding** → load evolved DNA as new layers (**Cancel Breed** if needed)
@@ -59,7 +59,7 @@ Pendoleum turns **modal harmony**, **pendulum physics**, and a **genetic algorit
 layer modes  →  physical & sonic collision  →  evolve scale DNA  →  feed back  →  audio + MIDI
 ```
 
-Every pendulum is a living oscillator: its length and motion are bound to pitch. Peaks fire MIDI. Energy drives Web Audio amplitude. Evolved scales become playable layers — the system invents music that never existed before, then plays it.
+Every pendulum is a living oscillator: its length and motion are bound to a modal frequency plan. Peaks fire MIDI. Energy drives Web Audio amplitude. Evolved scales become playable layers, so the instrument continually generates new material and plays it.
 
 ---
 
@@ -75,7 +75,7 @@ Every pendulum is a living oscillator: its length and motion are bound to pitch.
     <td width="33%" valign="top">
       <img src="docs/assets/feature-genetic.jpg" width="100%" alt="Genetic scale evolution artwork" /><br/>
       <strong>Genetic Mode Evolver</strong><br/>
-      <span>Real GA: population, mutate, crossover, fitness on harmonic purity + novelty. Evolve once or “overnight breed” dozens of generations in seconds.</span>
+      <span>Real GA: population, mutate, crossover, and fitness on harmonic interval targets plus a scale-length preference. Evolve once or “overnight breed” dozens of generations in seconds.</span>
     </td>
     <td width="33%" valign="top">
       <img src="docs/assets/feature-midi.jpg" width="100%" alt="MIDI streams from pendulums into a synth" /><br/>
@@ -122,7 +122,7 @@ Every pendulum is a living oscillator: its length and motion are bound to pitch.
 | Web MIDI | Chromium ✓ | Needs a device; fails gracefully with status text |
 | Canvas rAF | All modern | Visual loop always runs |
 
-**Target:** modern Chromium (Chrome, Edge, Brave). Safari / Firefox: visuals work; MIDI may be limited or absent — the UI stays usable.
+**Tested target:** modern Chromium (Chrome, Edge, Brave). Other browsers may render the canvas, but audio, recording, and MIDI support vary; the app reports unavailable capabilities instead of assuming they exist.
 
 ---
 
@@ -133,10 +133,15 @@ pendoleum/
 ├── index.html              ← the instrument (runtime source of truth)
 ├── idea1.md                ← original prototype narrative + source
 ├── README.md
+├── HANDOFF.md               ← current implementation and verification handoff
+├── PROGRESS.md              ← execution evidence and remaining risks
+├── DECISIONS.md             ← current scope and architecture decisions
+├── scripts/                 ← no-dependency verification and browser smoke
 └── docs/
     ├── assets/             ← hero, icon, features, screenshot
     ├── architecture/       ← ironclad design packet
-    └── plans/              ← ship plan + acceptance log
+    ├── plans/               ← dated ship plan + acceptance history
+    └── ideas/               ← upstream build-idea archive
 ```
 
 Single-file by design: open `index.html` and play. No bundler, no backend, no accounts.
@@ -148,7 +153,8 @@ Single-file by design: open `index.html` and play. No bundler, no backend, no ac
 - Local `customModes` for evolved scales  
 - Graceful **Web Audio** missing / blocked resume messaging  
 - Graceful **MIDI** unavailable / empty-output messaging  
-- **Layer cap** (5) enforced on genetic inject — modes still save when full  
+- **Layer cap** (5) enforced on genetic inject — modes still save when full
+- Responsive canvas and basic keyboard/screen-reader status semantics
 
 Sonic defaults (physics constants, fitness targets, gain) match the original idea1 prototype.
 
@@ -156,7 +162,17 @@ Sonic defaults (physics constants, fitness targets, gain) match the original ide
 
 ## License & credit
 
-Experiment freely. Built as a closed-loop generative instrument: modes × physics × evolution × MIDI.
+No license file is currently included; contact the repository owner before redistributing or reusing the code. Built as a closed-loop generative instrument: modes × physics × evolution × MIDI.
+
+## Verification
+
+Run the repository-local gate from the project root:
+
+```bash
+./scripts/verify.sh
+```
+
+The gate checks deterministic runtime behavior and exercises the current `index.html` in installed Chromium. Missing MIDI hardware and subjective speaker listening remain explicitly operator checks.
 
 <p align="center">
   <img src="docs/assets/hero.jpg" width="60%" alt="" /><br/>

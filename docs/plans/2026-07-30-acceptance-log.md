@@ -5,6 +5,8 @@
 **Browser (automated):** Google Chrome headless (`--headless=new`)  
 **Browser (manual audio/MIDI):** Operator should confirm O3–O5 interactively in Chromium  
 
+> The original record below is a dated v3 ship checkpoint. The current checkout is `/Volumes/WS4TB/waswiki/bupendi/pendoleum`; current-head revalidation is appended after the historical result and must not be inferred from the original path or browser run.
+
 ## Outcomes
 
 | ID | Outcome | Result | Evidence |
@@ -41,3 +43,29 @@
 | MIDI device list needs hardware (O5 devices) | Enable MIDI with a virtual/hardware output when available; empty-device status already verified in code |
 
 **Ship status:** Plan steps 1–12 complete for automated + code verification. Interactive audio/MIDI ear/device check remains operator-side; code paths are real (no mocks).
+
+## Current-head revalidation — 2026-08-03
+
+**Working-tree base:** `origin/main` `75b520566595875e998cf6b6892cd31bd216ee6c` plus the finish-goal changes being verified.
+
+**Browser:** Chrome `151.0.7922.72`, headless Chromium DevTools run against the real `file:///Volumes/WS4TB/waswiki/bupendi/pendoleum/index.html`.
+
+**Automated gate:** `node scripts/verify.mjs` — **PASS, 39 deterministic checks**.
+
+**Browser gate:** `node scripts/browser_smoke.mjs` — **PASS**.
+
+Verified in the current runtime:
+
+- two default layers and all 12 primary controls render;
+- mode, key, octave, rational speed, order, and note-count changes update live state;
+- JI status changes, five-layer cap, cap-safe evolution, and cancellable breeding;
+- Web Audio starts in Chromium, Mute/Stop/Resume state transitions are truthful;
+- recording produced non-empty WebM data (`10,819` bytes in the smoke run);
+- MIDI absence reports `MIDI not available in this browser` without a JavaScript error;
+- a 640px Chromium viewport has no horizontal overflow;
+- current creative-loop run recorded no JavaScript console errors (`[]`).
+
+Still operator-dependent and intentionally not claimed as verified here:
+
+- subjective speaker/listening confirmation;
+- output through an external MIDI device or DAW.

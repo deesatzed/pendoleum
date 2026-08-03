@@ -6,6 +6,8 @@
 - Interview requirements (confirmed)  
 - `docs/architecture/2026-07-30-modal-layer-pendulum-ironclad.md`  
 
+> **Historical record:** This dated checklist is preserved as the original execution plan. Its unchecked operator list is not a current status signal; see `docs/plans/2026-07-30-acceptance-log.md` for the original acceptance record and `HANDOFF.md` for current-head proof.
+
 **Defaults locked (no further ask unless unblock):**  
 - Deliverable path: `index.html` (repo root)  
 - Breed at layer cap: fill free slots only; status if none free  

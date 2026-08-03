@@ -2,13 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Modal Layer Pendulum – New Music Engine v3</title>
 <style>
-  body { margin:0; background:#0a0a14; color:#d0d0ff; font-family:system-ui,sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; }
-  h2 { margin:10px 0 2px; }
+  *, *::before, *::after { box-sizing:border-box; }
+  body { margin:0; padding:0 10px; background:#0a0a14; color:#d0d0ff; font-family:system-ui,sans-serif; display:flex; flex-direction:column; align-items:center; min-height:100vh; overflow-x:hidden; }
+  h1 { margin:10px 0 2px; font-size:1.5em; }
   .sub { opacity:.65; font-size:13px; margin-bottom:8px; }
-  canvas { background:#10102a; border-radius:14px; box-shadow:0 0 50px rgba(120,100,255,.12); }
-  .panel { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; padding:8px; max-width:960px; }
+  canvas { display:block; width:min(920px, 100%); height:auto; background:#10102a; border-radius:14px; box-shadow:0 0 50px rgba(120,100,255,.12); }
+  .panel { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; padding:8px; width:min(100%, 960px); }
   select, button, input { padding:7px 11px; border-radius:7px; border:none; background:#1c1c3a; color:#fff; font-size:13px; }
   button { background:#6c5ce7; cursor:pointer; }
   button:hover { background:#a29bfe; }
@@ -16,32 +18,39 @@
   button.danger:hover { background:#e74c3c; }
   button.recording { background:#e17055; animation: pulse 1.2s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: .75; } }
-  .layer-row { display:flex; flex-wrap:wrap; align-items:center; gap:5px; background:#161632; padding:5px 9px; border-radius:7px; font-size:12px; }
+  .layer-row { display:flex; flex-wrap:wrap; align-items:center; gap:5px; max-width:100%; background:#161632; padding:5px 9px; border-radius:7px; font-size:12px; }
   .layer-row select, .layer-row input { font-size:12px; padding:5px 7px; }
   .layer-row .tag { opacity:.55; font-size:10px; margin-left:2px; }
   #status { font-size:12px; opacity:.75; margin:6px 0 10px; text-align:center; max-width:920px; word-break:break-word; }
   .section { background:#12122a; padding:8px 12px; border-radius:10px; margin:4px; }
   label { display:inline-flex; align-items:center; gap:4px; }
+  button:focus-visible, select:focus-visible, input:focus-visible, canvas:focus-visible { outline:2px solid #a29bfe; outline-offset:2px; }
+  @media (max-width:640px) {
+    body { padding:0 4px; }
+    .panel { padding:5px 0; }
+    .layer-row, .section { width:100%; justify-content:center; }
+    .layer-row select { max-width:calc(100vw - 90px); }
+  }
 </style>
 </head>
 <body>
-  <h2>Modal Layer Pendulum – Generative Engine</h2>
+  <h1>Modal Layer Pendulum – Generative Engine</h1>
   <div class="sub">Per layer: mode · key · oct · speed · order (↑/↓) · notes (count) · JI · MIDI · evolve</div>
 
-  <div class="panel" id="layersPanel"></div>
+  <div class="panel" id="layersPanel" role="group" aria-label="Modal layers"></div>
 
   <div class="panel">
     <div class="section">
-      <button onclick="addLayer()">+ Layer</button>
-      <button onclick="restart()">Restart</button>
+      <button id="addLayerBtn" onclick="addLayer()">+ Layer</button>
+      <button id="restartBtn" onclick="restart()">Restart</button>
       <button onclick="togglePause()" id="pauseBtn">Pause</button>
-      <label>Default notes <input type="number" id="numPerLayer" value="7" min="1" max="12" style="width:42px" title="Default note count for new layers" onchange="onDefaultNotesChange()"></label>
+      <label>Default notes <input type="number" id="numPerLayer" value="7" min="1" max="12" style="width:42px" title="Default note count for new layers" aria-label="Default note count for new layers" onchange="onDefaultNotesChange()"></label>
     </div>
 
     <div class="section">
       <button onclick="toggleAudio()" id="audioBtn">Start Sound</button>
       <button onclick="stopAll()" id="stopBtn" class="danger">Stop</button>
-      <label>Vol <input type="range" id="volSlider" min="0" max="100" value="55" oninput="setMasterVolume(+this.value/100)" style="width:90px; vertical-align:middle"></label>
+      <label><span aria-hidden="true">Vol</span> <input type="range" id="volSlider" min="0" max="100" value="55" aria-label="Master volume" oninput="setMasterVolume(+this.value/100)" style="width:90px; vertical-align:middle"></label>
     </div>
 
     <div class="section">
@@ -50,24 +59,24 @@
     </div>
 
     <div class="section">
-      <label><input type="checkbox" id="jiToggle" onchange="restart()"> Just Intonation</label>
+      <label><input type="checkbox" id="jiToggle" aria-label="Just Intonation" onchange="restart()"> Just Intonation</label>
     </div>
 
     <div class="section">
       <button onclick="enableMIDI()" id="midiBtn">Enable MIDI</button>
-      <select id="midiOut" style="max-width:160px"></select>
+      <select id="midiOut" aria-label="MIDI output device" style="max-width:160px"></select>
     </div>
 
     <div class="section">
-      <button onclick="evolveOnce()">Evolve Once</button>
+      <button id="evolveBtn" onclick="evolveOnce()">Evolve Once</button>
       <button onclick="overnightBreed()" id="breedBtn">Simulate Overnight Breeding</button>
       <button onclick="cancelBreed()" id="cancelBreedBtn" class="danger" style="display:none">Cancel Breed</button>
-      <label>Gens <input type="number" id="gens" value="40" min="5" max="200" style="width:48px"></label>
+      <label>Gens <input type="number" id="gens" value="40" min="5" max="200" style="width:60px" aria-label="Breeding generations"></label>
     </div>
   </div>
 
-  <canvas id="c" width="920" height="600"></canvas>
-  <div id="status">Stack modes → Start Sound → Record to save → Stop to silence. Chromium recommended.</div>
+  <canvas id="c" width="920" height="600" role="img" tabindex="0" aria-label="Animated layered pendulum visualization">Pendoleum animated pendulum visualization.</canvas>
+  <div id="status" role="status" aria-live="polite" aria-atomic="true">Stack modes → Start Sound → Record to save → Stop to silence. Chromium recommended.</div>
 
 <script>
 const canvas = document.getElementById('c');

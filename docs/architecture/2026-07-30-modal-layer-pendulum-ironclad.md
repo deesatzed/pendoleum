@@ -6,6 +6,8 @@
 **Upstream:** `/build` Stage 1 · `planning --mode=interview` (confirmed)  
 **Source artifact:** `idea1.md` (embedded complete HTML prototype)
 
+> **Historical record:** This packet captures the 2026-07-30 v3 ship design. The current runtime also includes later recording, Stop/Pause, rational-speed, per-layer-control, responsive, and accessibility hardening. See the repository `HANDOFF.md` and current verification gate for present truth.
+
 ---
 
 # PASS A — Design Packet Construction
