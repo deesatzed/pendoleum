@@ -1,6 +1,6 @@
 # Pendoleum Current Handoff
 
-**Status:** Release-credible v1 implementation verified; final commit/push is the remaining Git operation for this handoff.
+**Status:** Release-credible v1 implementation verified and pushed to `origin/main`.
 
 **As of:** 2026-08-03
 
@@ -10,6 +10,7 @@
 - Branch: `main`
 - Remote: `origin` → `https://github.com/deesatzed/pendoleum.git`
 - Verified base before finish changes: `75b520566595875e998cf6b6892cd31bd216ee6c`
+- First verified implementation push: `9d8b9670d35392b4456706fec30417f3d3ff9d1a` (`Finish and verify Pendoleum v1`).
 - Runtime source of truth: `index.html`
 - `idea1.md` and the dated architecture/ship-plan files are historical references, not current runtime truth.
 
@@ -63,10 +64,8 @@ The screenshot in `docs/assets/app-screenshot.png` was regenerated from the curr
 - Evolved modes are session-local; persistence, presets, sharing, Scala export, and MIDI CC remain future work.
 - No software license is granted by this repository at present; do not infer reuse rights from the README.
 
-## Remaining Git handoff steps
+## Git handoff record
 
-1. Review the complete diff and ensure no generated recording, profile, secret, or unrelated file is staged.
-2. Run `git diff --check` and the full `./scripts/verify.sh` gate on the final tree.
-3. Commit the scoped changes on `main`.
-4. Fetch `origin`, confirm fast-forward state, and run `git push origin main`.
-5. Fetch again and record final commit/remote parity and clean worktree here and in `PROGRESS.md`.
+- The verified implementation commit above was pushed with `git push origin main`.
+- Post-push audit after that push: local `HEAD` and `origin/main` both resolved to `9d8b9670d35392b4456706fec30417f3d3ff9d1a`; `git rev-list --left-right --count HEAD...origin/main` returned `0 0`; `git status --porcelain` returned no output.
+- A documentation-only follow-up may update this handoff; the final command output remains authoritative for the current HEAD hash and remote parity.

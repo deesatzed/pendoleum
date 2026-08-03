@@ -33,8 +33,9 @@
 - Marked dated architecture/ship-plan records as historical and appended current-head revalidation to the acceptance log.
 - Added `HANDOFF.md` and recorded the remaining Git-only steps: final diff review, scoped commit, fast-forward push, and post-push parity.
 
-## Remaining
+## 2026-08-03 — Push checkpoint
 
-- Review/stage only intended changes.
-- Run final gate once more after any handoff/hash update.
-- Commit and fast-forward push to `origin/main`, then record the final hash and clean parity.
+- Final full gate passed immediately before commit: 39 deterministic checks plus current Chromium smoke, with 10,819-byte WebM evidence and zero page JavaScript errors.
+- Verified implementation commit `9d8b9670d35392b4456706fec30417f3d3ff9d1a` was pushed to `origin/main`.
+- Post-push audit returned clean `git status --porcelain`, identical local/remote hashes, and divergence `0 0`.
+- This handoff/progress wording is a documentation-only follow-up; rerun the full gate and parity check after its commit/push.
